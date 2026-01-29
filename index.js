@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 require('dotenv').config();
 const { generateRoomId } = require('./utils/generateRoomId')
+const { deleteFromCloudinary } = require('./utils/cloudinary');
 
 const app = express();
 const server = http.createServer(app);
@@ -77,22 +78,60 @@ io.on("connection", (socket) => {
 
         console.log("Rooms details:", rooms);
     });
+    //? Leave Room
+    socket.on('leave-room', ({ roomId }) => {
+        if (!rooms[roomId]) return socket.emit('error:leave-room', "Room doesn't exist!");
+        if (!rooms[roomId].members.includes(socket.id)) return socket.emit('error:leave-room', "User doesn't exist in room!");
+
+        // Make user leave from the room (socket level)
+        socket.leave(socket.id);
+
+        // Remove user from room
+        rooms[roomId].members = rooms[roomId].members.filter(user => user != socket.id);
+
+        console.log("Rooms details:", rooms);
+
+        socket.emit("success:leave-room", { roomId });
+        socket.to(roomId).emit("user-left", socket.id);
+
+        console.log("Rooms details:", rooms);
+
+        if (rooms[roomId].members.length === 0) {
+            delete rooms[roomId];
+        }
+    });
+
     //? Add Songs to queue
-    socket.on("add-song", ({ songs, roomId }) => {
+    socket.on('add-song', ({ songs, roomId }) => {
+        // Check if room exists
         if (!rooms[roomId]) {
             return socket.emit("error:join-room", "Room doesn't exist!");
         }
-        if (!songs || !Array.isArray(songs)) {
+
+        // Ensure socket is joined to the room (handles reconnections)
+        socket.join(roomId);
+        if (rooms[roomId].members && !rooms[roomId].members.includes(socket.id)) {
+            rooms[roomId].members.push(socket.id);
+        }
+
+        // Check if songs is provided or not
+        if (!songs) {
             return socket.emit("error:add-song", "No songs provided or invalid format");
         }
 
-        //? Initialize queue if not exists
+        // Check if songs is an array 
+        let songArray = Array.isArray(songs) ? songs : [songs];
+        if (!songArray.length) {
+            return socket.emit("error:add-song", "No songs provided or invalid format");
+        }
+
+        // Initialize queue if not exists
         if (!rooms[roomId].songsQueue) {
             rooms[roomId].songsQueue = [];
         }
 
-        //? Filter out songs that are already in the queue to prevent duplicates
-        const newSongs = songs.filter(newSong =>
+        // Filter out songs that are already in the queue to prevent duplicates
+        const newSongs = songArray.filter(newSong =>
             !rooms[roomId].songsQueue.some(existingSong => existingSong.id === newSong.id)
         );
 
@@ -100,28 +139,47 @@ io.on("connection", (socket) => {
             return socket.emit("error:add-song", "Songs already exist in queue!");
         }
 
-        //? Push new songs to the song queue
+        // Push new songs to the song queue
         rooms[roomId].songsQueue.push(...newSongs);
+        console.log(`Added ${newSongs.length} songs to room ${roomId}`);
 
-        //? Notify room
+        // Notify everyone in the room
         io.to(roomId).emit("queue-updated", {
             queue: rooms[roomId].songsQueue
         });
     });
     //? Remove song from queue
-    socket.on("remove-song", ({ song, roomId }) => {
-        if (!rooms[roomId]) return socket.emit("error:join-room", "Room doesn't exist!");
-        if (!rooms[roomId].songsQueue) return socket.emit("error:remove-song", "No song available in song queue!");
+    socket.on('remove-song', async ({ song, roomId }) => {
+        //? Basic validation
+        if (!rooms[roomId]) return socket.emit("error:remove-song", "Room doesn't exist!");
+        if (!rooms[roomId].songsQueue) return socket.emit("error:remove-song", "Queue is empty!");
+
+        //? Authorization validation: Only admin can remove songs
+        if (rooms[roomId].admin !== socket.id) {
+            return socket.emit("error:remove-song", "Only the room creator can remove songs!");
+        }
 
         //? Filter out the requested song
+        const initialLength = rooms[roomId].songsQueue.length;
         rooms[roomId].songsQueue = rooms[roomId].songsQueue.filter(s => s.id !== song.id);
 
-        //? Notify room
+        if (rooms[roomId].songsQueue.length === initialLength) {
+            return socket.emit("error:remove-song", "Song not found in queue!");
+        }
+
+        //? Destroy the file on Cloudinary
+        if (song.id) {
+            await deleteFromCloudinary(song.id);
+        }
+
+        //? Notify everyone in the room
         io.to(roomId).emit("queue-updated", {
             queue: rooms[roomId].songsQueue
         });
     });
 
+    //? Play song in sync + 8d effect
+    
 })
 
 //! Routes

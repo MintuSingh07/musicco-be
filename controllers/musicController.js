@@ -1,10 +1,7 @@
-const { rooms } = require('../data/rooms');
 const { uploadToCloudinary } = require('../utils/cloudinary');
 
 const uploadMusic = async (req, res) => {
     try {
-        const { roomId } = req.body;
-
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({
                 success: false,
@@ -25,33 +22,18 @@ const uploadMusic = async (req, res) => {
             });
         }
 
-        //? If roomId is provided, add directly to the room's queue
-        if (roomId && rooms[roomId]) {
-            if (!rooms[roomId].songsQueue) rooms[roomId].songsQueue = [];
-
-            successfulUploads.forEach(result => {
-                rooms[roomId].songsQueue.push({
-                    id: result.public_id,
-                    url: result.secure_url,
-                    name: result.original_filename || "New Song",
-                    duration: result.duration,
-                    format: result.format
-                });
-            });
-
-            // Notify everyone in the room via socket
-            const io = req.app.get('socketio');
-            if (io) {
-                io.to(roomId).emit("queue-updated", {
-                    queue: rooms[roomId].songsQueue
-                });
-            }
-        }
+        const formattedSongs = successfulUploads.map(result => ({
+            id: result.public_id,
+            url: result.secure_url,
+            name: result.original_filename || "New Song",
+            duration: result.duration,
+            format: result.format
+        }));
 
         return res.status(200).json({
             success: true,
-            message: roomId ? "Uploaded and added to queue" : "Uploaded successfully",
-            data: successfulUploads
+            message: "Uploaded successfully",
+            data: formattedSongs
         });
 
     } catch (error) {
