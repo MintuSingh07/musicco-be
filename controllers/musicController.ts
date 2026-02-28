@@ -1,15 +1,17 @@
-const { uploadToCloudinary } = require('../utils/cloudinary');
+import { Request, Response } from 'express';
+import { uploadToCloudinary } from '../utils/cloudinary';
 
-const uploadMusic = async (req, res) => {
+export const uploadMusic = async (req: Request, res: Response): Promise<any> => {
   try {
-    if (!req.files || req.files.length === 0) {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
       return res.status(400).json({
         success: false,
         message: "No files uploaded"
       });
     }
 
-    const uploadPromises = req.files.map(file => {
+    const uploadPromises = files.map(file => {
       const decodedOriginalName = Buffer
         .from(file.originalname, 'latin1')
         .toString('utf8');
@@ -21,11 +23,11 @@ const uploadMusic = async (req, res) => {
     const successfulUploads = results.filter(Boolean);
 
     const formattedSongs = successfulUploads.map(result => ({
-      id: result.public_id,
-      url: result.secure_url,
-      name: result.context?.custom?.song_name,
-      duration: result.duration,
-      format: result.format
+      id: result?.public_id,
+      url: result?.secure_url,
+      name: (result?.context as any)?.custom?.song_name,
+      duration: result?.duration,
+      format: result?.format
     }));
 
     console.log("formattedSongs:", formattedSongs);
@@ -44,5 +46,3 @@ const uploadMusic = async (req, res) => {
     });
   }
 };
-
-module.exports = { uploadMusic };

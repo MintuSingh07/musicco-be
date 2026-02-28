@@ -1,6 +1,9 @@
-const cloudinary = require('cloudinary').v2;
-const fs = require('fs');
-const path = require('path');
+import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import fs from 'fs';
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -8,7 +11,7 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const uploadToCloudinary = async (localFilePath, originalName) => {
+export const uploadToCloudinary = async (localFilePath: string, originalName: string): Promise<UploadApiResponse | null> => {
     try {
         if (!localFilePath) return null;
 
@@ -33,7 +36,7 @@ const uploadToCloudinary = async (localFilePath, originalName) => {
     }
 };
 
-const deleteFromCloudinary = async (publicId) => {
+export const deleteFromCloudinary = async (publicId: string): Promise<any> => {
     try {
         return await cloudinary.uploader.destroy(publicId, {
             resource_type: "video"
@@ -43,5 +46,3 @@ const deleteFromCloudinary = async (publicId) => {
         return null;
     }
 };
-
-module.exports = { uploadToCloudinary, deleteFromCloudinary };

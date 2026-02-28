@@ -1,11 +1,15 @@
-const express = require('express');
-const http = require('http');
-const cors = require('cors');
-const { Server } = require('socket.io');
-const connectDB = require('./config/db');
-require('dotenv').config();
-const { generateRoomId } = require('./utils/generateRoomId')
-const { deleteFromCloudinary } = require('./utils/cloudinary');
+import express from 'express';
+import http from 'http';
+import cors from 'cors';
+import { Server, Socket } from 'socket.io';
+import connectDB from './config/db';
+import dotenv from 'dotenv';
+import { generateRoomId } from './utils/generateRoomId';
+import { deleteFromCloudinary } from './utils/cloudinary';
+import { rooms } from './data/rooms';
+import musicRoutes from './routes/musicRoutes';
+
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -14,7 +18,7 @@ const io = new Server(server, {
         origin: '*',
         methods: ['GET', 'POST']
     }
-})
+});
 
 // Make io accessible to our routes
 app.set('socketio', io);
@@ -22,15 +26,13 @@ app.set('socketio', io);
 // Connect to Database
 connectDB();
 
-const { rooms } = require('./data/rooms');
-
 // Middlewares
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 //! Socket
-io.on("connection", (socket) => {
+io.on("connection", (socket: Socket) => {
     // We already moved 'rooms' to a shared file
     console.log("User connected with id:", socket.id);
 
@@ -59,7 +61,7 @@ io.on("connection", (socket) => {
         console.log("Rooms datails:", rooms);
     })
     //? Join Room
-    socket.on('join-room', ({ roomId }) => {
+    socket.on('join-room', ({ roomId }: { roomId: string }) => {
 
         if (!rooms[roomId]) {
             return socket.emit("error:join-room", "Room doesn't exist!");
@@ -79,7 +81,7 @@ io.on("connection", (socket) => {
         console.log("Rooms details:", rooms);
     });
     //? Leave Room
-    socket.on('leave-room', ({ roomId }) => {
+    socket.on('leave-room', ({ roomId }: { roomId: string }) => {
         if (!rooms[roomId]) return socket.emit('error:leave-room', "Room doesn't exist!");
         if (!rooms[roomId].members.includes(socket.id)) return socket.emit('error:leave-room', "User doesn't exist in room!");
 
@@ -87,7 +89,7 @@ io.on("connection", (socket) => {
         socket.leave(socket.id);
 
         // Remove user from room
-        rooms[roomId].members = rooms[roomId].members.filter(user => user != socket.id);
+        rooms[roomId].members = rooms[roomId].members.filter((user: string) => user != socket.id);
 
         console.log("Rooms details:", rooms);
 
@@ -102,7 +104,7 @@ io.on("connection", (socket) => {
     });
 
     //? Add Songs to queue
-    socket.on('add-song', ({ songs, roomId }) => {
+    socket.on('add-song', ({ songs, roomId }: { songs: any, roomId: string }) => {
         // Check if room exists
         if (!rooms[roomId]) {
             return socket.emit("error:join-room", "Room doesn't exist!");
@@ -131,8 +133,8 @@ io.on("connection", (socket) => {
         }
 
         // Filter out songs that are already in the queue to prevent duplicates
-        const newSongs = songArray.filter(newSong =>
-            !rooms[roomId].songsQueue.some(existingSong => existingSong.id === newSong.id)
+        const newSongs = songArray.filter((newSong: any) =>
+            !rooms[roomId].songsQueue.some((existingSong: any) => existingSong.id === newSong.id)
         );
 
         if (newSongs.length === 0) {
@@ -149,7 +151,7 @@ io.on("connection", (socket) => {
         });
     });
     //? Remove song from queue
-    socket.on('remove-song', async ({ song, roomId }) => {
+    socket.on('remove-song', async ({ song, roomId }: { song: any, roomId: string }) => {
         //? Basic validation
         if (!rooms[roomId]) return socket.emit("error:remove-song", "Room doesn't exist!");
         if (!rooms[roomId].songsQueue) return socket.emit("error:remove-song", "Queue is empty!");
@@ -161,7 +163,7 @@ io.on("connection", (socket) => {
 
         //? Filter out the requested song
         const initialLength = rooms[roomId].songsQueue.length;
-        rooms[roomId].songsQueue = rooms[roomId].songsQueue.filter(s => s.id !== song.id);
+        rooms[roomId].songsQueue = rooms[roomId].songsQueue.filter((s: any) => s.id !== song.id);
 
         if (rooms[roomId].songsQueue.length === initialLength) {
             return socket.emit("error:remove-song", "Song not found in queue!");
@@ -183,7 +185,6 @@ io.on("connection", (socket) => {
 })
 
 //! Routes
-const musicRoutes = require('./routes/musicRoutes');
 app.use('/api/v1/music', musicRoutes);
 
 const PORT = process.env.PORT || 5000;

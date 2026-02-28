@@ -1,6 +1,6 @@
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 // Ensure the temp directory exists
 const tempDir = path.join(__dirname, '../public/temp');
@@ -18,9 +18,7 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({
+export const upload = multer({
     storage: storage,
     limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit for video/audio
 });
-
-module.exports = { upload };

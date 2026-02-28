@@ -1,9 +1,7 @@
-const { v4: uuidv4 } = require("uuid");
+import { v4 as uuidv4 } from 'uuid';
 
-function generateRoomId() {
+export function generateRoomId(): string {
     const id = uuidv4().replace(/-/g, "");
 
     return `${id.slice(0, 4)}-${id.slice(4, 7)}-${id.slice(7, 10)}`;
 }
-
-module.exports = { generateRoomId };
