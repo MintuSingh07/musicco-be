@@ -13,6 +13,7 @@ const generateRoomId_1 = require("./utils/generateRoomId");
 const cloudinary_1 = require("./utils/cloudinary");
 const rooms_1 = require("./data/rooms");
 const musicRoutes_1 = __importDefault(require("./routes/musicRoutes"));
+const deviceDetector_1 = require("./utils/deviceDetector");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
@@ -32,7 +33,6 @@ app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 //! Socket
 io.on("connection", (socket) => {
-    // We already moved 'rooms' to a shared file
     console.log("User connected with id:", socket.id);
     //? Create Room
     socket.on('create-room', () => {
@@ -40,10 +40,11 @@ io.on("connection", (socket) => {
         if (rooms_1.rooms[roomId]) {
             return socket.emit('error:create-room', "Room already exists!");
         }
+        const deviceInfo = (0, deviceDetector_1.getDeviceInfo)(socket.handshake.headers['user-agent']);
         // This signify that user join the room
         rooms_1.rooms[roomId] = {
             admin: socket.id,
-            members: [socket.id]
+            members: [{ id: socket.id, ...deviceInfo }]
         };
         // This logic actually join the socket to the room
         socket.join(roomId);
@@ -51,22 +52,27 @@ io.on("connection", (socket) => {
             roomId,
             admin: socket.id
         });
-        console.log("Rooms datails:", rooms_1.rooms);
+        console.log("Rooms details:", JSON.stringify(rooms_1.rooms, null, 2));
     });
     //? Join Room
     socket.on('join-room', ({ roomId }) => {
         if (!rooms_1.rooms[roomId]) {
             return socket.emit("error:join-room", "Room doesn't exist!");
         }
-        if (rooms_1.rooms[roomId].members.includes(socket.id)) {
-            return socket.emit("error:member-exist", "Member already exists!");
+        const deviceInfo = (0, deviceDetector_1.getDeviceInfo)(socket.handshake.headers['user-agent']);
+        const memberInfo = { id: socket.id, ...deviceInfo };
+        if (!rooms_1.rooms[roomId].members.some((m) => m.id === socket.id)) {
+            socket.join(roomId);
+            rooms_1.rooms[roomId].members.push(memberInfo);
+            socket.to(roomId).emit("user-joined", memberInfo);
         }
-        socket.join(roomId);
-        rooms_1.rooms[roomId].members.push(socket.id);
         console.log(rooms_1.rooms[roomId].members);
-        socket.emit("success:join-room", { roomId });
-        socket.to(roomId).emit("user-joined", socket.id);
-        console.log("Rooms details:", rooms_1.rooms);
+        socket.emit("success:join-room", {
+            roomId,
+            members: rooms_1.rooms[roomId].members,
+            admin: rooms_1.rooms[roomId].admin
+        });
+        console.log("Rooms details:", JSON.stringify(rooms_1.rooms, null, 2));
     });
     //? Leave Room
     socket.on('leave-room', ({ roomId }) => {
@@ -77,7 +83,7 @@ io.on("connection", (socket) => {
         // Make user leave from the room (socket level)
         socket.leave(socket.id);
         // Remove user from room
-        rooms_1.rooms[roomId].members = rooms_1.rooms[roomId].members.filter((user) => user != socket.id);
+        rooms_1.rooms[roomId].members = rooms_1.rooms[roomId].members.filter((user) => user.id != socket.id);
         console.log("Rooms details:", rooms_1.rooms);
         socket.emit("success:leave-room", { roomId });
         socket.to(roomId).emit("user-left", socket.id);
@@ -94,8 +100,9 @@ io.on("connection", (socket) => {
         }
         // Ensure socket is joined to the room (handles reconnections)
         socket.join(roomId);
-        if (rooms_1.rooms[roomId].members && !rooms_1.rooms[roomId].members.includes(socket.id)) {
-            rooms_1.rooms[roomId].members.push(socket.id);
+        if (rooms_1.rooms[roomId].members && !rooms_1.rooms[roomId].members.some((m) => m.id === socket.id)) {
+            const deviceInfo = (0, deviceDetector_1.getDeviceInfo)(socket.handshake.headers['user-agent']);
+            rooms_1.rooms[roomId].members.push({ id: socket.id, ...deviceInfo });
         }
         // Check if songs is provided or not
         if (!songs) {

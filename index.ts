@@ -8,6 +8,7 @@ import { generateRoomId } from './utils/generateRoomId';
 import { deleteFromCloudinary } from './utils/cloudinary';
 import { rooms } from './data/rooms';
 import musicRoutes from './routes/musicRoutes';
+import { getDeviceInfo, DeviceInfo } from './utils/deviceDetector';
 
 dotenv.config();
 
@@ -33,7 +34,6 @@ app.use(express.urlencoded({ extended: true }));
 
 //! Socket
 io.on("connection", (socket: Socket) => {
-    // We already moved 'rooms' to a shared file
     console.log("User connected with id:", socket.id);
 
     //? Create Room
@@ -44,10 +44,12 @@ io.on("connection", (socket: Socket) => {
             return socket.emit('error:create-room', "Room already exists!")
         }
 
+        const deviceInfo = getDeviceInfo(socket.handshake.headers['user-agent']);
+
         // This signify that user join the room
         rooms[roomId] = {
             admin: socket.id,
-            members: [socket.id]
+            members: [{ id: socket.id, ...deviceInfo }]
         }
 
         // This logic actually join the socket to the room
@@ -58,7 +60,7 @@ io.on("connection", (socket: Socket) => {
             admin: socket.id
         })
 
-        console.log("Rooms datails:", rooms);
+        console.log("Rooms details:", JSON.stringify(rooms, null, 2));
     })
     //? Join Room
     socket.on('join-room', ({ roomId }: { roomId: string }) => {
@@ -67,18 +69,23 @@ io.on("connection", (socket: Socket) => {
             return socket.emit("error:join-room", "Room doesn't exist!");
         }
 
-        if (rooms[roomId].members.includes(socket.id)) {
-            return socket.emit("error:member-exist", "Member already exists!");
-        }
+        const deviceInfo = getDeviceInfo(socket.handshake.headers['user-agent']);
+        const memberInfo = { id: socket.id, ...deviceInfo };
 
-        socket.join(roomId);
-        rooms[roomId].members.push(socket.id);
+        if (!rooms[roomId].members.some((m: any) => m.id === socket.id)) {
+            socket.join(roomId);
+            rooms[roomId].members.push(memberInfo);
+            socket.to(roomId).emit("user-joined", memberInfo);
+        }
         console.log(rooms[roomId].members);
 
-        socket.emit("success:join-room", { roomId });
-        socket.to(roomId).emit("user-joined", socket.id);
+        socket.emit("success:join-room", { 
+            roomId,
+            members: rooms[roomId].members,
+            admin: rooms[roomId].admin
+        });
 
-        console.log("Rooms details:", rooms);
+        console.log("Rooms details:", JSON.stringify(rooms, null, 2));
     });
     //? Leave Room
     socket.on('leave-room', ({ roomId }: { roomId: string }) => {
@@ -89,7 +96,7 @@ io.on("connection", (socket: Socket) => {
         socket.leave(socket.id);
 
         // Remove user from room
-        rooms[roomId].members = rooms[roomId].members.filter((user: string) => user != socket.id);
+        rooms[roomId].members = rooms[roomId].members.filter((user: any) => user.id != socket.id);
 
         console.log("Rooms details:", rooms);
 
@@ -112,8 +119,9 @@ io.on("connection", (socket: Socket) => {
 
         // Ensure socket is joined to the room (handles reconnections)
         socket.join(roomId);
-        if (rooms[roomId].members && !rooms[roomId].members.includes(socket.id)) {
-            rooms[roomId].members.push(socket.id);
+        if (rooms[roomId].members && !rooms[roomId].members.some((m: any) => m.id === socket.id)) {
+            const deviceInfo = getDeviceInfo(socket.handshake.headers['user-agent']);
+            rooms[roomId].members.push({ id: socket.id, ...deviceInfo });
         }
 
         // Check if songs is provided or not
