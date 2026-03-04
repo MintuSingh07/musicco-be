@@ -13,8 +13,6 @@ export function getDeviceInfo(userAgent: string | undefined): DeviceInfo {
     const parser = new UAParser(userAgent);
     const result = parser.getResult();
 
-    console.log("Device info:", result);
-
     let device_type: 'Mobile' | 'Tablet' | 'Laptop' = 'Laptop';
     
     //? Map ua-parser-js device types to our format
@@ -32,11 +30,9 @@ export function getDeviceInfo(userAgent: string | undefined): DeviceInfo {
     
     if (result.device.vendor || result.device.model) {
         device_name = `${result.device.vendor || ''} ${result.device.model || ''}`.trim();
-    } else if (result.os.name) {
+    }
+    else if (result.os.name) {
         device_name = result.os.name;
-        if (result.os.version) {
-            device_name += ` ${result.os.version}`;
-        }
     }
 
     // Cleaner device name for Mac/Apple
