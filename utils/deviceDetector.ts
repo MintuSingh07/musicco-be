@@ -7,13 +7,13 @@ export interface DeviceInfo {
 
 export function getDeviceInfo(userAgent: string | undefined): DeviceInfo {
     if (!userAgent) {
-        return { device_type: 'Laptop', device_name: 'Unknown Device' };
+        return { device_type: 'Tablet', device_name: 'Unknown Device' };
     }
 
     const parser = new UAParser(userAgent);
     const result = parser.getResult();
 
-    let device_type: 'Mobile' | 'Tablet' | 'Laptop' = 'Laptop';
+    let device_type: 'Mobile' | 'Tablet' | 'Laptop' = 'Tablet';
     
     //? Map ua-parser-js device types to our format
     if (result.device.type === 'mobile') {

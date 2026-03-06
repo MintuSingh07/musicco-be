@@ -82,7 +82,9 @@ io.on("connection", (socket: Socket) => {
         socket.emit("success:join-room", { 
             roomId,
             members: rooms[roomId].members,
-            admin: rooms[roomId].admin
+            admin: rooms[roomId].admin,
+            songsQueue: rooms[roomId].songsQueue || [],
+            currentSong: rooms[roomId].currentSong || null
         });
 
         console.log("Rooms details:", JSON.stringify(rooms, null, 2));
@@ -151,11 +153,18 @@ io.on("connection", (socket: Socket) => {
 
         // Push new songs to the song queue
         rooms[roomId].songsQueue.push(...newSongs);
+        
+        // Auto-set current song if none exists
+        if (!rooms[roomId].currentSong && rooms[roomId].songsQueue.length > 0) {
+            rooms[roomId].currentSong = rooms[roomId].songsQueue[0];
+        }
+
         console.log(`Added ${newSongs.length} songs to room ${roomId}`);
 
         // Notify everyone in the room
         io.to(roomId).emit("queue-updated", {
-            queue: rooms[roomId].songsQueue
+            queue: rooms[roomId].songsQueue,
+            currentSong: rooms[roomId].currentSong
         });
     });
     //? Remove song from queue
@@ -182,9 +191,34 @@ io.on("connection", (socket: Socket) => {
             await deleteFromCloudinary(song.id);
         }
 
+        //? If the removed song was the current song, pick the next one
+        if (rooms[roomId].currentSong && rooms[roomId].currentSong.id === song.id) {
+            rooms[roomId].currentSong = rooms[roomId].songsQueue.length > 0 ? rooms[roomId].songsQueue[0] : null;
+        }
+
         //? Notify everyone in the room
         io.to(roomId).emit("queue-updated", {
-            queue: rooms[roomId].songsQueue
+            queue: rooms[roomId].songsQueue,
+            currentSong: rooms[roomId].currentSong
+        });
+    });
+
+    //? Switch current song
+    socket.on('update-current-song', ({ song, roomId }: { song: any, roomId: string }) => {
+        if (!rooms[roomId]) return socket.emit("error:update-current-song", "Room doesn't exist!");
+        
+        // Authorization: Only admin can switch songs
+        if (rooms[roomId].admin !== socket.id) {
+            return socket.emit("error:update-current-song", "Only the room creator can switch songs!");
+        }
+
+        // Update the current song
+        rooms[roomId].currentSong = song;
+        
+        // Notify everyone
+        io.to(roomId).emit("queue-updated", {
+            queue: rooms[roomId].songsQueue,
+            currentSong: rooms[roomId].currentSong
         });
     });
 
