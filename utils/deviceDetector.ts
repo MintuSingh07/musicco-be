@@ -16,9 +16,10 @@ export function getDeviceInfo(userAgent: string | undefined): DeviceInfo {
     let device_type: 'Mobile' | 'Tablet' | 'Laptop' = 'Tablet';
     
     //? Map ua-parser-js device types to our format
+    const lowerUA = userAgent.toLowerCase();
     if (result.device.type === 'mobile') {
         device_type = 'Mobile';
-    } else if (result.device.type === 'tablet') {
+    } else if (result.device.type === 'tablet' || lowerUA.includes('ipad')) {
         device_type = 'Tablet';
     } else {
         // Default to Laptop for desktop browsers where device.type is usually undefined
@@ -37,7 +38,10 @@ export function getDeviceInfo(userAgent: string | undefined): DeviceInfo {
 
     // Cleaner device name for Mac/Apple
     const lowerName = device_name.toLowerCase();
-    if (lowerName.includes('mac os') || lowerName.includes('macintosh') || (lowerName.includes('apple') && device_type === 'Laptop')) {
+    if (lowerUA.includes('ipad')) {
+        device_name = 'iPad';
+        device_type = 'Tablet';
+    } else if (lowerName.includes('mac os') || lowerName.includes('macintosh') || (lowerName.includes('apple') && device_type === 'Laptop')) {
         device_name = 'MacBook';
     }
 

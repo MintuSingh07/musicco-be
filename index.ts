@@ -49,7 +49,14 @@ io.on("connection", (socket: Socket) => {
         // This signify that user join the room
         rooms[roomId] = {
             admin: socket.id,
-            members: [{ id: socket.id, ...deviceInfo }]
+            members: [{ id: socket.id, ...deviceInfo }],
+            songsQueue: [],
+            currentSong: null,
+            playback: {
+                isPlaying: false,
+                currentTime: 0,
+                lastUpdatedAt: Date.now()
+            }
         }
 
         // This logic actually join the socket to the room
@@ -57,7 +64,8 @@ io.on("connection", (socket: Socket) => {
 
         socket.emit("success:create-room", {
             roomId,
-            admin: socket.id
+            admin: socket.id,
+            playback: rooms[roomId].playback
         })
 
         console.log("Rooms details:", JSON.stringify(rooms, null, 2));
@@ -84,7 +92,8 @@ io.on("connection", (socket: Socket) => {
             members: rooms[roomId].members,
             admin: rooms[roomId].admin,
             songsQueue: rooms[roomId].songsQueue || [],
-            currentSong: rooms[roomId].currentSong || null
+            currentSong: rooms[roomId].currentSong || null,
+            playback: rooms[roomId].playback || { isPlaying: false, currentTime: 0, lastUpdatedAt: Date.now() }
         });
 
         console.log("Rooms details:", JSON.stringify(rooms, null, 2));
@@ -222,8 +231,44 @@ io.on("connection", (socket: Socket) => {
         });
     });
 
-    //? Play song in sync + 8d effect
-    
+    //? Play song in sync
+    socket.on('play-song', ({ roomId, currentTime }: { roomId: string, currentTime: number }) => {
+        if (!rooms[roomId]) return;
+        if (rooms[roomId].admin !== socket.id) return;
+
+        rooms[roomId].playback = {
+            isPlaying: true,
+            currentTime: currentTime,
+            lastUpdatedAt: Date.now()
+        };
+
+        io.to(roomId).emit('playback-status', rooms[roomId].playback);
+    });
+
+    //? Pause song in sync
+    socket.on('pause-song', ({ roomId, currentTime }: { roomId: string, currentTime: number }) => {
+        if (!rooms[roomId]) return;
+        if (rooms[roomId].admin !== socket.id) return;
+
+        rooms[roomId].playback = {
+            isPlaying: false,
+            currentTime: currentTime,
+            lastUpdatedAt: Date.now()
+        };
+
+        io.to(roomId).emit('playback-status', rooms[roomId].playback);
+    });
+
+    //? Seek song in sync
+    socket.on('seek-song', ({ roomId, currentTime }: { roomId: string, currentTime: number }) => {
+        if (!rooms[roomId]) return;
+        if (rooms[roomId].admin !== socket.id) return;
+
+        rooms[roomId].playback.currentTime = currentTime;
+        rooms[roomId].playback.lastUpdatedAt = Date.now();
+
+        io.to(roomId).emit('playback-status', rooms[roomId].playback);
+    });
 })
 
 //! Routes
