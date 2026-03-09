@@ -28,7 +28,7 @@ app.set('socketio', io);
 // Connect to Database
 (0, db_1.default)();
 // Middlewares
-app.use((0, cors_1.default)({ origin: process.env.FRONTEND_URL || '*' }));
+app.use((0, cors_1.default)({ origin: process.env.FRONTEND_URL }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 //! Socket

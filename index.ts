@@ -28,7 +28,7 @@ app.set('socketio', io);
 connectDB();
 
 // Middlewares
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+app.use(cors({ origin: process.env.FRONTEND_URL }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
