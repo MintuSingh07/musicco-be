@@ -4,17 +4,17 @@ exports.getDeviceInfo = getDeviceInfo;
 const ua_parser_js_1 = require("ua-parser-js");
 function getDeviceInfo(userAgent) {
     if (!userAgent) {
-        return { device_type: 'Laptop', device_name: 'Unknown Device' };
+        return { device_type: 'Tablet', device_name: 'Unknown Device' };
     }
     const parser = new ua_parser_js_1.UAParser(userAgent);
     const result = parser.getResult();
-    console.log("Device info:", result);
-    let device_type = 'Laptop';
+    let device_type = 'Tablet';
     //? Map ua-parser-js device types to our format
+    const lowerUA = userAgent.toLowerCase();
     if (result.device.type === 'mobile') {
         device_type = 'Mobile';
     }
-    else if (result.device.type === 'tablet') {
+    else if (result.device.type === 'tablet' || lowerUA.includes('ipad')) {
         device_type = 'Tablet';
     }
     else {
@@ -28,13 +28,14 @@ function getDeviceInfo(userAgent) {
     }
     else if (result.os.name) {
         device_name = result.os.name;
-        if (result.os.version) {
-            device_name += ` ${result.os.version}`;
-        }
     }
     // Cleaner device name for Mac/Apple
     const lowerName = device_name.toLowerCase();
-    if (lowerName.includes('mac os') || lowerName.includes('macintosh') || (lowerName.includes('apple') && device_type === 'Laptop')) {
+    if (lowerUA.includes('ipad')) {
+        device_name = 'iPad';
+        device_type = 'Tablet';
+    }
+    else if (lowerName.includes('mac os') || lowerName.includes('macintosh') || (lowerName.includes('apple') && device_type === 'Laptop')) {
         device_name = 'MacBook';
     }
     return { device_type, device_name };

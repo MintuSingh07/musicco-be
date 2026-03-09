@@ -19,7 +19,7 @@ const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
 const io = new socket_io_1.Server(server, {
     cors: {
-        origin: '*',
+        origin: process.env.FRONTEND_URL,
         methods: ['GET', 'POST']
     }
 });
@@ -28,7 +28,7 @@ app.set('socketio', io);
 // Connect to Database
 (0, db_1.default)();
 // Middlewares
-app.use((0, cors_1.default)());
+app.use((0, cors_1.default)({ origin: process.env.FRONTEND_URL || '*' }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 //! Socket
@@ -44,13 +44,21 @@ io.on("connection", (socket) => {
         // This signify that user join the room
         rooms_1.rooms[roomId] = {
             admin: socket.id,
-            members: [{ id: socket.id, ...deviceInfo }]
+            members: [{ id: socket.id, ...deviceInfo }],
+            songsQueue: [],
+            currentSong: null,
+            playback: {
+                isPlaying: false,
+                currentTime: 0,
+                lastUpdatedAt: Date.now()
+            }
         };
         // This logic actually join the socket to the room
         socket.join(roomId);
         socket.emit("success:create-room", {
             roomId,
-            admin: socket.id
+            admin: socket.id,
+            playback: rooms_1.rooms[roomId].playback
         });
         console.log("Rooms details:", JSON.stringify(rooms_1.rooms, null, 2));
     });
@@ -70,7 +78,10 @@ io.on("connection", (socket) => {
         socket.emit("success:join-room", {
             roomId,
             members: rooms_1.rooms[roomId].members,
-            admin: rooms_1.rooms[roomId].admin
+            admin: rooms_1.rooms[roomId].admin,
+            songsQueue: rooms_1.rooms[roomId].songsQueue || [],
+            currentSong: rooms_1.rooms[roomId].currentSong || null,
+            playback: rooms_1.rooms[roomId].playback || { isPlaying: false, currentTime: 0, lastUpdatedAt: Date.now() }
         });
         console.log("Rooms details:", JSON.stringify(rooms_1.rooms, null, 2));
     });
@@ -124,10 +135,15 @@ io.on("connection", (socket) => {
         }
         // Push new songs to the song queue
         rooms_1.rooms[roomId].songsQueue.push(...newSongs);
+        // Auto-set current song if none exists
+        if (!rooms_1.rooms[roomId].currentSong && rooms_1.rooms[roomId].songsQueue.length > 0) {
+            rooms_1.rooms[roomId].currentSong = rooms_1.rooms[roomId].songsQueue[0];
+        }
         console.log(`Added ${newSongs.length} songs to room ${roomId}`);
         // Notify everyone in the room
         io.to(roomId).emit("queue-updated", {
-            queue: rooms_1.rooms[roomId].songsQueue
+            queue: rooms_1.rooms[roomId].songsQueue,
+            currentSong: rooms_1.rooms[roomId].currentSong
         });
     });
     //? Remove song from queue
@@ -151,12 +167,68 @@ io.on("connection", (socket) => {
         if (song.id) {
             await (0, cloudinary_1.deleteFromCloudinary)(song.id);
         }
+        //? If the removed song was the current song, pick the next one
+        if (rooms_1.rooms[roomId].currentSong && rooms_1.rooms[roomId].currentSong.id === song.id) {
+            rooms_1.rooms[roomId].currentSong = rooms_1.rooms[roomId].songsQueue.length > 0 ? rooms_1.rooms[roomId].songsQueue[0] : null;
+        }
         //? Notify everyone in the room
         io.to(roomId).emit("queue-updated", {
-            queue: rooms_1.rooms[roomId].songsQueue
+            queue: rooms_1.rooms[roomId].songsQueue,
+            currentSong: rooms_1.rooms[roomId].currentSong
         });
     });
-    //? Play song in sync + 8d effect
+    //? Switch current song
+    socket.on('update-current-song', ({ song, roomId }) => {
+        if (!rooms_1.rooms[roomId])
+            return socket.emit("error:update-current-song", "Room doesn't exist!");
+        // Authorization: Only admin can switch songs
+        if (rooms_1.rooms[roomId].admin !== socket.id) {
+            return socket.emit("error:update-current-song", "Only the room creator can switch songs!");
+        }
+        // Update the current song
+        rooms_1.rooms[roomId].currentSong = song;
+        // Notify everyone
+        io.to(roomId).emit("queue-updated", {
+            queue: rooms_1.rooms[roomId].songsQueue,
+            currentSong: rooms_1.rooms[roomId].currentSong
+        });
+    });
+    //? Play song in sync
+    socket.on('play-song', ({ roomId, currentTime }) => {
+        if (!rooms_1.rooms[roomId])
+            return;
+        if (rooms_1.rooms[roomId].admin !== socket.id)
+            return;
+        rooms_1.rooms[roomId].playback = {
+            isPlaying: true,
+            currentTime: currentTime,
+            lastUpdatedAt: Date.now()
+        };
+        io.to(roomId).emit('playback-status', rooms_1.rooms[roomId].playback);
+    });
+    //? Pause song in sync
+    socket.on('pause-song', ({ roomId, currentTime }) => {
+        if (!rooms_1.rooms[roomId])
+            return;
+        if (rooms_1.rooms[roomId].admin !== socket.id)
+            return;
+        rooms_1.rooms[roomId].playback = {
+            isPlaying: false,
+            currentTime: currentTime,
+            lastUpdatedAt: Date.now()
+        };
+        io.to(roomId).emit('playback-status', rooms_1.rooms[roomId].playback);
+    });
+    //? Seek song in sync
+    socket.on('seek-song', ({ roomId, currentTime }) => {
+        if (!rooms_1.rooms[roomId])
+            return;
+        if (rooms_1.rooms[roomId].admin !== socket.id)
+            return;
+        rooms_1.rooms[roomId].playback.currentTime = currentTime;
+        rooms_1.rooms[roomId].playback.lastUpdatedAt = Date.now();
+        io.to(roomId).emit('playback-status', rooms_1.rooms[roomId].playback);
+    });
 });
 //! Routes
 app.use('/api/v1/music', musicRoutes_1.default);
