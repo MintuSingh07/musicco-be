@@ -14,9 +14,12 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+const normalizedOrigin = frontendUrl.startsWith('http') ? frontendUrl : `https://${frontendUrl}`;
+
 const io = new Server(server, {
     cors: {
-        origin: process.env.FRONTEND_URL,
+        origin: normalizedOrigin,
         methods: ['GET', 'POST']
     }
 });
@@ -28,7 +31,7 @@ app.set('socketio', io);
 connectDB();
 
 // Middlewares
-app.use(cors({ origin: process.env.FRONTEND_URL }));
+app.use(cors({ origin: normalizedOrigin }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
