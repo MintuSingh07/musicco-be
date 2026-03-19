@@ -1,28 +1,28 @@
-import express from 'express';
-import http from 'http';
-import cors from 'cors';
-import { Server, Socket } from 'socket.io';
-import connectDB from './config/db';
-import dotenv from 'dotenv';
-import { generateRoomId } from './utils/generateRoomId';
-import { deleteFromCloudinary } from './utils/cloudinary';
-import { rooms } from './data/rooms';
-import musicRoutes from './routes/musicRoutes';
-import { getDeviceInfo } from './utils/deviceDetector';
+import express from "express";
+import http from "http";
+import cors from "cors";
+import { Server, Socket } from "socket.io";
+import connectDB from "./config/db";
+import dotenv from "dotenv";
+import { generateRoomId } from "./utils/generateRoomId";
+import { deleteFromCloudinary } from "./utils/cloudinary";
+import { rooms } from "./data/rooms";
+import musicRoutes from "./routes/musicRoutes";
+import { getDeviceInfo } from "./utils/deviceDetector";
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL,
-        methods: ['GET', 'POST']
-    }
+  cors: {
+    origin: process.env.FRONTEND_URL,
+    methods: ["GET", "POST"],
+  },
 });
 
 // Make io accessible to our routes
-app.set('socketio', io);
+app.set("socketio", io);
 
 // Connect to Database
 connectDB();
@@ -34,267 +34,318 @@ app.use(express.urlencoded({ extended: true }));
 
 //! Socket
 io.on("connection", (socket: Socket) => {
-    console.log("User connected with id:", socket.id);
+  console.log("User connected with id:", socket.id);
 
-    //? Create Room
-    socket.on('create-room', () => {
-        let roomId = generateRoomId()
+  //? Create Room
+  socket.on("create-room", () => {
+    let roomId = generateRoomId();
 
-        if (rooms[roomId]) {
-            return socket.emit('error:create-room', "Room already exists!")
-        }
+    if (rooms[roomId]) {
+      return socket.emit("error:create-room", "Room already exists!");
+    }
 
-        const deviceInfo = getDeviceInfo(socket.handshake.headers['user-agent']);
+    const deviceInfo = getDeviceInfo(socket.handshake.headers["user-agent"]);
 
-        // This signify that user join the room
-        rooms[roomId] = {
-            admin: socket.id,
-            members: [{ id: socket.id, ...deviceInfo }],
-            songsQueue: [],
-            currentSong: null,
-            playback: {
-                isPlaying: false,
-                currentTime: 0,
-                startAt: 0,
-                lastUpdatedAt: Date.now()
-            }
-        }
+    // This signify that user join the room
+    rooms[roomId] = {
+      admin: socket.id,
+      members: [{ id: socket.id, ...deviceInfo }],
+      songsQueue: [],
+      currentSong: null,
+      playback: {
+        isPlaying: false,
+        currentTime: 0,
+        startAt: 0,
+        lastUpdatedAt: Date.now(),
+      },
+    };
 
-        // This logic actually join the socket to the room
-        socket.join(roomId)
+    // This logic actually join the socket to the room
+    socket.join(roomId);
 
-        socket.emit("success:create-room", {
-            roomId,
-            admin: socket.id,
-            playback: rooms[roomId].playback
-        })
-
-        console.log("Rooms details:", JSON.stringify(rooms, null, 2));
-    })
-    //? Join Room
-    socket.on('join-room', ({ roomId }: { roomId: string }) => {
-
-        if (!rooms[roomId]) {
-            return socket.emit("error:join-room", "Room doesn't exist!");
-        }
-
-        const deviceInfo = getDeviceInfo(socket.handshake.headers['user-agent']);
-        const memberInfo = { id: socket.id, ...deviceInfo };
-
-        if (!rooms[roomId].members.some((m: any) => m.id === socket.id)) {
-            socket.join(roomId);
-            rooms[roomId].members.push(memberInfo);
-            socket.to(roomId).emit("user-joined", memberInfo);
-        }
-        console.log(rooms[roomId].members);
-
-        socket.emit("success:join-room", { 
-            roomId,
-            members: rooms[roomId].members,
-            admin: rooms[roomId].admin,
-            songsQueue: rooms[roomId].songsQueue || [],
-            currentSong: rooms[roomId].currentSong || null,
-            playback: rooms[roomId].playback || { isPlaying: false, currentTime: 0, startAt: 0, lastUpdatedAt: Date.now() }
-        });
-
-        console.log("Rooms details:", JSON.stringify(rooms, null, 2));
-    });
-    //? Leave Room
-    socket.on('leave-room', ({ roomId }: { roomId: string }) => {
-        if (!rooms[roomId]) return socket.emit('error:leave-room', "Room doesn't exist!");
-        if (!rooms[roomId].members.includes(socket.id)) return socket.emit('error:leave-room', "User doesn't exist in room!");
-
-        // Make user leave from the room (socket level)
-        socket.leave(socket.id);
-
-        // Remove user from room
-        rooms[roomId].members = rooms[roomId].members.filter((user: any) => user.id != socket.id);
-
-        console.log("Rooms details:", rooms);
-
-        socket.emit("success:leave-room", { roomId });
-        socket.to(roomId).emit("user-left", socket.id);
-
-        console.log("Rooms details:", rooms);
-
-        if (rooms[roomId].members.length === 0) {
-            delete rooms[roomId];
-        }
+    socket.emit("success:create-room", {
+      roomId,
+      admin: socket.id,
+      playback: rooms[roomId].playback,
     });
 
-    //? Add Songs to queue
-    socket.on('add-song', ({ songs, roomId }: { songs: any, roomId: string }) => {
-        // Check if room exists
-        if (!rooms[roomId]) {
-            return socket.emit("error:join-room", "Room doesn't exist!");
-        }
+    console.log("Rooms details:", JSON.stringify(rooms, null, 2));
+  });
+  //? Join Room
+  socket.on("join-room", ({ roomId }: { roomId: string }) => {
+    if (!rooms[roomId]) {
+      return socket.emit("error:join-room", "Room doesn't exist!");
+    }
 
-        // Ensure socket is joined to the room (handles reconnections)
-        socket.join(roomId);
-        if (rooms[roomId].members && !rooms[roomId].members.some((m: any) => m.id === socket.id)) {
-            const deviceInfo = getDeviceInfo(socket.handshake.headers['user-agent']);
-            rooms[roomId].members.push({ id: socket.id, ...deviceInfo });
-        }
+    const deviceInfo = getDeviceInfo(socket.handshake.headers["user-agent"]);
+    const memberInfo = { id: socket.id, ...deviceInfo };
 
-        // Check if songs is provided or not
-        if (!songs) {
-            return socket.emit("error:add-song", "No songs provided or invalid format");
-        }
+    if (!rooms[roomId].members.some((m: any) => m.id === socket.id)) {
+      socket.join(roomId);
+      rooms[roomId].members.push(memberInfo);
+      socket.to(roomId).emit("user-joined", memberInfo);
+    }
+    console.log(rooms[roomId].members);
 
-        // Check if songs is an array 
-        let songArray = Array.isArray(songs) ? songs : [songs];
-        if (!songArray.length) {
-            return socket.emit("error:add-song", "No songs provided or invalid format");
-        }
+    socket.emit("success:join-room", {
+      roomId,
+      members: rooms[roomId].members,
+      admin: rooms[roomId].admin,
+      songsQueue: rooms[roomId].songsQueue || [],
+      currentSong: rooms[roomId].currentSong || null,
+      playback: rooms[roomId].playback || {
+        isPlaying: false,
+        currentTime: 0,
+        startAt: 0,
+        lastUpdatedAt: Date.now(),
+      },
+    });
 
-        // Initialize queue if not exists
-        if (!rooms[roomId].songsQueue) {
-            rooms[roomId].songsQueue = [];
-        }
+    console.log("Rooms details:", JSON.stringify(rooms, null, 2));
+  });
+  //? Leave Room
+  socket.on("leave-room", ({ roomId }: { roomId: string }) => {
+    if (!rooms[roomId])
+      return socket.emit("error:leave-room", "Room doesn't exist!");
+    if (!rooms[roomId].members.includes(socket.id))
+      return socket.emit("error:leave-room", "User doesn't exist in room!");
 
-        // Filter out songs that are already in the queue to prevent duplicates
-        const newSongs = songArray.filter((newSong: any) =>
-            !rooms[roomId].songsQueue.some((existingSong: any) => existingSong.id === newSong.id)
+    // Make user leave from the room (socket level)
+    socket.leave(socket.id);
+
+    // Remove user from room
+    rooms[roomId].members = rooms[roomId].members.filter(
+      (user: any) => user.id != socket.id,
+    );
+
+    console.log("Rooms details:", rooms);
+
+    socket.emit("success:leave-room", { roomId });
+    socket.to(roomId).emit("user-left", socket.id);
+
+    console.log("Rooms details:", rooms);
+
+    if (rooms[roomId].members.length === 0) {
+      delete rooms[roomId];
+    }
+  });
+
+  //? Add Songs to queue
+  socket.on("add-song", ({ songs, roomId }: { songs: any; roomId: string }) => {
+    // Check if room exists
+    if (!rooms[roomId]) {
+      return socket.emit("error:join-room", "Room doesn't exist!");
+    }
+
+    // Ensure socket is joined to the room (handles reconnections)
+    socket.join(roomId);
+    if (
+      rooms[roomId].members &&
+      !rooms[roomId].members.some((m: any) => m.id === socket.id)
+    ) {
+      const deviceInfo = getDeviceInfo(socket.handshake.headers["user-agent"]);
+      rooms[roomId].members.push({ id: socket.id, ...deviceInfo });
+    }
+
+    // Check if songs is provided or not
+    if (!songs) {
+      return socket.emit(
+        "error:add-song",
+        "No songs provided or invalid format",
+      );
+    }
+
+    // Check if songs is an array
+    let songArray = Array.isArray(songs) ? songs : [songs];
+    if (!songArray.length) {
+      return socket.emit(
+        "error:add-song",
+        "No songs provided or invalid format",
+      );
+    }
+
+    // Initialize queue if not exists
+    if (!rooms[roomId].songsQueue) {
+      rooms[roomId].songsQueue = [];
+    }
+
+    // Filter out songs that are already in the queue to prevent duplicates
+    const newSongs = songArray.filter(
+      (newSong: any) =>
+        !rooms[roomId].songsQueue.some(
+          (existingSong: any) => existingSong.id === newSong.id,
+        ),
+    );
+
+    if (newSongs.length === 0) {
+      return socket.emit("error:add-song", "Songs already exist in queue!");
+    }
+
+    // Push new songs to the song queue
+    rooms[roomId].songsQueue.push(...newSongs);
+
+    // Auto-set current song if none exists
+    if (!rooms[roomId].currentSong && rooms[roomId].songsQueue.length > 0) {
+      rooms[roomId].currentSong = rooms[roomId].songsQueue[0];
+    }
+
+    console.log(`Added ${newSongs.length} songs to room ${roomId}`);
+
+    // Notify everyone in the room
+    io.to(roomId).emit("queue-updated", {
+      queue: rooms[roomId].songsQueue,
+      currentSong: rooms[roomId].currentSong,
+    });
+  });
+  //? Remove song from queue
+  socket.on(
+    "remove-song",
+    async ({ song, roomId }: { song: any; roomId: string }) => {
+      //? Basic validation
+      if (!rooms[roomId])
+        return socket.emit("error:remove-song", "Room doesn't exist!");
+      if (!rooms[roomId].songsQueue)
+        return socket.emit("error:remove-song", "Queue is empty!");
+
+      //? Authorization validation: Only admin can remove songs
+      if (rooms[roomId].admin !== socket.id) {
+        return socket.emit(
+          "error:remove-song",
+          "Only the room creator can remove songs!",
         );
+      }
 
-        if (newSongs.length === 0) {
-            return socket.emit("error:add-song", "Songs already exist in queue!");
-        }
+      //? Filter out the requested song
+      const initialLength = rooms[roomId].songsQueue.length;
+      rooms[roomId].songsQueue = rooms[roomId].songsQueue.filter(
+        (s: any) => s.id !== song.id,
+      );
 
-        // Push new songs to the song queue
-        rooms[roomId].songsQueue.push(...newSongs);
-        
-        // Auto-set current song if none exists
-        if (!rooms[roomId].currentSong && rooms[roomId].songsQueue.length > 0) {
-            rooms[roomId].currentSong = rooms[roomId].songsQueue[0];
-        }
+      if (rooms[roomId].songsQueue.length === initialLength) {
+        return socket.emit("error:remove-song", "Song not found in queue!");
+      }
 
-        console.log(`Added ${newSongs.length} songs to room ${roomId}`);
+      //? Destroy the file on Cloudinary
+      if (song.id) {
+        await deleteFromCloudinary(song.id);
+      }
 
-        // Notify everyone in the room
-        io.to(roomId).emit("queue-updated", {
-            queue: rooms[roomId].songsQueue,
-            currentSong: rooms[roomId].currentSong
-        });
-    });
-    //? Remove song from queue
-    socket.on('remove-song', async ({ song, roomId }: { song: any, roomId: string }) => {
-        //? Basic validation
-        if (!rooms[roomId]) return socket.emit("error:remove-song", "Room doesn't exist!");
-        if (!rooms[roomId].songsQueue) return socket.emit("error:remove-song", "Queue is empty!");
+      //? If the removed song was the current song, pick the next one
+      if (
+        rooms[roomId].currentSong &&
+        rooms[roomId].currentSong.id === song.id
+      ) {
+        rooms[roomId].currentSong =
+          rooms[roomId].songsQueue.length > 0
+            ? rooms[roomId].songsQueue[0]
+            : null;
+      }
 
-        //? Authorization validation: Only admin can remove songs
-        if (rooms[roomId].admin !== socket.id) {
-            return socket.emit("error:remove-song", "Only the room creator can remove songs!");
-        }
+      //? Notify everyone in the room
+      io.to(roomId).emit("queue-updated", {
+        queue: rooms[roomId].songsQueue,
+        currentSong: rooms[roomId].currentSong,
+      });
+    },
+  );
 
-        //? Filter out the requested song
-        const initialLength = rooms[roomId].songsQueue.length;
-        rooms[roomId].songsQueue = rooms[roomId].songsQueue.filter((s: any) => s.id !== song.id);
+  //? Switch current song
+  socket.on(
+    "update-current-song",
+    ({ song, roomId }: { song: any; roomId: string }) => {
+      if (!rooms[roomId])
+        return socket.emit("error:update-current-song", "Room doesn't exist!");
 
-        if (rooms[roomId].songsQueue.length === initialLength) {
-            return socket.emit("error:remove-song", "Song not found in queue!");
-        }
+      // Authorization: Only admin can switch songs
+      if (rooms[roomId].admin !== socket.id) {
+        return socket.emit(
+          "error:update-current-song",
+          "Only the room creator can switch songs!",
+        );
+      }
 
-        //? Destroy the file on Cloudinary
-        if (song.id) {
-            await deleteFromCloudinary(song.id);
-        }
+      // Update the current song
+      rooms[roomId].currentSong = song;
 
-        //? If the removed song was the current song, pick the next one
-        if (rooms[roomId].currentSong && rooms[roomId].currentSong.id === song.id) {
-            rooms[roomId].currentSong = rooms[roomId].songsQueue.length > 0 ? rooms[roomId].songsQueue[0] : null;
-        }
+      // Notify everyone
+      io.to(roomId).emit("queue-updated", {
+        queue: rooms[roomId].songsQueue,
+        currentSong: rooms[roomId].currentSong,
+      });
+    },
+  );
 
-        //? Notify everyone in the room
-        io.to(roomId).emit("queue-updated", {
-            queue: rooms[roomId].songsQueue,
-            currentSong: rooms[roomId].currentSong
-        });
-    });
+  // ================= PLAY =================
+  socket.on("play-song", ({ roomId, currentTime }) => {
+    if (!rooms[roomId]) return;
+    if (rooms[roomId].admin !== socket.id) return;
 
-    //? Switch current song
-    socket.on('update-current-song', ({ song, roomId }: { song: any, roomId: string }) => {
-        if (!rooms[roomId]) return socket.emit("error:update-current-song", "Room doesn't exist!");
-        
-        // Authorization: Only admin can switch songs
-        if (rooms[roomId].admin !== socket.id) {
-            return socket.emit("error:update-current-song", "Only the room creator can switch songs!");
-        }
+    const startAt = Date.now() + 2000; // ⬅️ 2 sec buffer (important)
 
-        // Update the current song
-        rooms[roomId].currentSong = song;
-        
-        // Notify everyone
-        io.to(roomId).emit("queue-updated", {
-            queue: rooms[roomId].songsQueue,
-            currentSong: rooms[roomId].currentSong
-        });
-    });
+    rooms[roomId].playback = {
+      isPlaying: true,
+      currentTime,
+      startAt,
+      lastUpdatedAt: Date.now(),
+    };
 
-    //? Play song in sync
-    socket.on('play-song', ({ roomId, currentTime }: { roomId: string, currentTime: number }) => {
-        if (!rooms[roomId]) return;
-        if (rooms[roomId].admin !== socket.id) return;
+    io.to(roomId).emit("playback-status", rooms[roomId].playback);
+  });
 
-        rooms[roomId].playback = {
-            isPlaying: true,
-            currentTime: currentTime,
-            startAt: Date.now() + 1000,
-            lastUpdatedAt: Date.now()
-        };
+  // ================= PAUSE =================
+  socket.on("pause-song", ({ roomId, currentTime }) => {
+    if (!rooms[roomId]) return;
+    if (rooms[roomId].admin !== socket.id) return;
 
-        io.to(roomId).emit('playback-status', rooms[roomId].playback);
-    });
+    rooms[roomId].playback = {
+      isPlaying: false,
+      currentTime,
+      startAt: 0,
+      lastUpdatedAt: Date.now(),
+    };
 
-    //? Pause song in sync
-    socket.on('pause-song', ({ roomId, currentTime }: { roomId: string, currentTime: number }) => {
-        if (!rooms[roomId]) return;
-        if (rooms[roomId].admin !== socket.id) return;
+    io.to(roomId).emit("playback-status", rooms[roomId].playback);
+  });
 
-        rooms[roomId].playback = {
-            isPlaying: false,
-            currentTime: currentTime,
-            startAt: 0,
-            lastUpdatedAt: Date.now()
-        };
+  // ================= SEEK =================
+  socket.on("seek-song", ({ roomId, currentTime }) => {
+    if (!rooms[roomId]) return;
+    if (rooms[roomId].admin !== socket.id) return;
 
-        io.to(roomId).emit('playback-status', rooms[roomId].playback);
-    });
+    const startAt = Date.now() + 1000;
 
-    //? Seek song in sync
-    socket.on('seek-song', ({ roomId, currentTime }: { roomId: string, currentTime: number }) => {
-        if (!rooms[roomId]) return;
-        if (rooms[roomId].admin !== socket.id) return;
+    rooms[roomId].playback = {
+      isPlaying: true,
+      currentTime,
+      startAt,
+      lastUpdatedAt: Date.now(),
+    };
 
-        rooms[roomId].playback.currentTime = currentTime;
-        rooms[roomId].playback.lastUpdatedAt = Date.now();
-        rooms[roomId].playback.startAt = Date.now();
+    io.to(roomId).emit("playback-status", rooms[roomId].playback);
+  });
+});
 
-        io.to(roomId).emit('playback-status', rooms[roomId].playback);
-    });
-
-    //? Clock sync
-    socket.on('ping', () => {
-        socket.emit('pong', Date.now());
-    });
-})
-
-// Periodic Sync for Drift Correction
+// ================= HIGH-FREQUENCY SYNC =================
 setInterval(() => {
     for (const roomId in rooms) {
         const room = rooms[roomId];
-        if (room.playback && room.playback.isPlaying) {
-            const currentPosition = room.playback.currentTime + (Date.now() - room.playback.startAt) / 1000;
-            io.to(roomId).emit("sync", { position: currentPosition, startAt: room.playback.startAt });
-        }
+        if (!room.playback?.isPlaying) continue;
+
+        const position =
+            room.playback.currentTime +
+            (Date.now() - room.playback.startAt) / 1000;
+
+        io.to(roomId).emit("sync", {
+            position,
+            startAt: room.playback.startAt
+        });
     }
-}, 5000);
+}, 2000); // ⬅️ every 1 second (IMPORTANT)
 
 //! Routes
-app.use('/api/v1/music', musicRoutes);
+app.use("/api/v1/music", musicRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
