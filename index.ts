@@ -8,7 +8,7 @@ import { generateRoomId } from './utils/generateRoomId';
 import { deleteFromCloudinary } from './utils/cloudinary';
 import { rooms } from './data/rooms';
 import musicRoutes from './routes/musicRoutes';
-import { getDeviceInfo, DeviceInfo } from './utils/deviceDetector';
+import { getDeviceInfo } from './utils/deviceDetector';
 
 dotenv.config();
 
@@ -55,6 +55,7 @@ io.on("connection", (socket: Socket) => {
             playback: {
                 isPlaying: false,
                 currentTime: 0,
+                startAt: 0,
                 lastUpdatedAt: Date.now()
             }
         }
@@ -93,7 +94,7 @@ io.on("connection", (socket: Socket) => {
             admin: rooms[roomId].admin,
             songsQueue: rooms[roomId].songsQueue || [],
             currentSong: rooms[roomId].currentSong || null,
-            playback: rooms[roomId].playback || { isPlaying: false, currentTime: 0, lastUpdatedAt: Date.now() }
+            playback: rooms[roomId].playback || { isPlaying: false, currentTime: 0, startAt: 0, lastUpdatedAt: Date.now() }
         });
 
         console.log("Rooms details:", JSON.stringify(rooms, null, 2));
@@ -239,6 +240,7 @@ io.on("connection", (socket: Socket) => {
         rooms[roomId].playback = {
             isPlaying: true,
             currentTime: currentTime,
+            startAt: Date.now() + 1000,
             lastUpdatedAt: Date.now()
         };
 
@@ -253,6 +255,7 @@ io.on("connection", (socket: Socket) => {
         rooms[roomId].playback = {
             isPlaying: false,
             currentTime: currentTime,
+            startAt: 0,
             lastUpdatedAt: Date.now()
         };
 
@@ -266,10 +269,27 @@ io.on("connection", (socket: Socket) => {
 
         rooms[roomId].playback.currentTime = currentTime;
         rooms[roomId].playback.lastUpdatedAt = Date.now();
+        rooms[roomId].playback.startAt = Date.now();
 
         io.to(roomId).emit('playback-status', rooms[roomId].playback);
     });
+
+    //? Clock sync
+    socket.on('ping', () => {
+        socket.emit('pong', Date.now());
+    });
 })
+
+// Periodic Sync for Drift Correction
+setInterval(() => {
+    for (const roomId in rooms) {
+        const room = rooms[roomId];
+        if (room.playback && room.playback.isPlaying) {
+            const currentPosition = room.playback.currentTime + (Date.now() - room.playback.startAt) / 1000;
+            io.to(roomId).emit("sync", { position: currentPosition, startAt: room.playback.startAt });
+        }
+    }
+}, 5000);
 
 //! Routes
 app.use('/api/v1/music', musicRoutes);
